@@ -8,7 +8,7 @@ import salesAcievemnt from './routes.sales.achievements.js';
 import salesBranchWise from './routes.sales.branch.wise.js';
 import salesGrowthNational from './routes.sales.growth.national.js';
 import salesSummary from './routes.sales.summary.js';
-
+import rdSales from './routes.rd.sales.js';
 
 const router = express.Router();
 
@@ -22,5 +22,6 @@ router.use('/sales-growth-national', salesGrowthNational);
 router.use('/product-inventory', productInventory);
 router.use('/sales-branch-wise', salesBranchWise);
 router.use('/sales-achievements', salesAcievemnt);
+router.use('/rd-sales', rdSales);
 
 export default router;

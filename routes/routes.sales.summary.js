@@ -29,7 +29,7 @@ const ALLOWED_FILTERS = {
 
 router.get("/", async (req, res) => {
   try {
-    const { groupBy = "Ctg", ...filters } = req.query;
+    const { groupBy = "Ctg", displayMode = "absolute", ...filters } = req.query;
 
     const groupByKeys = groupBy.split(",").map((k) => k.trim());
 
@@ -45,7 +45,6 @@ router.get("/", async (req, res) => {
       .map((k) => `${ALLOWED_GROUP_BY[k]} AS "${k}"`)
       .join(",\n        ");
 
-    // Build GROUP BY clause
     const groupByClause = groupByKeys
       .map((k) => ALLOWED_GROUP_BY[k])
       .join(", ");
@@ -61,9 +60,45 @@ router.get("/", async (req, res) => {
     }
     const filterSQL = filterClauses.length > 0 ? filterClauses.join("\n") : "";
 
-    const sql = `
-      SELECT
-        ${selectCols},
+    // Metric columns: EFP mode (displayMode=percentage) or TP mode (displayMode=absolute, default)
+    const isEfp = displayMode === "EFP";
+    const metricCols = isEfp
+      ? `
+        SUM(CASE
+            WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+            AND  billing_date <= CURRENT_DATE
+            THEN "EFP_Cur" * sold_qty ELSE 0
+        END) AS CMV,
+        SUM(CASE
+            WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+            AND  billing_date <= (CURRENT_DATE - INTERVAL '1 month')
+            THEN "EFP" * sold_qty ELSE 0
+        END) AS PMV,
+        ROUND(
+            (
+                SUM(CASE
+                    WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+                    AND  billing_date <= CURRENT_DATE
+                    THEN "EFP_Cur" * sold_qty ELSE 0
+                END)::numeric
+                -
+                SUM(CASE
+                    WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    AND  billing_date <= (CURRENT_DATE - INTERVAL '1 month')
+                    THEN "EFP" * sold_qty ELSE 0
+                END)::numeric
+            )
+            /
+            NULLIF(
+                SUM(CASE
+                    WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                    AND  billing_date <= (CURRENT_DATE - INTERVAL '1 month')
+                    THEN "EFP" * sold_qty ELSE 0
+                END)::numeric
+            , 0)
+            * 100
+        , 1) AS "S_Grw%"`
+      : `
         SUM(CASE
             WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
             AND  billing_date <= CURRENT_DATE
@@ -97,7 +132,12 @@ router.get("/", async (req, res) => {
                 END)::numeric
             , 0)
             * 100
-        , 1) AS "S_Grw%"
+        , 1) AS "S_Grw%"`;
+
+    const sql = `
+      SELECT
+        ${selectCols},
+        ${metricCols}
       FROM vw_invoice_productmap t01
       WHERE
           billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
