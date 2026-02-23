@@ -1,0 +1,16 @@
+name: distribution-metrics-be
+
+services:
+  app:
+    image: iblcloud/searl-distribution-metric-be:1.0.0
+    container_name: searl-distribution-metric-be
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    ports:
+      - "3008:3008"
+    volumes:
+      - ./logs:/app/logs

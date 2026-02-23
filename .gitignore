@@ -1,0 +1,6 @@
+node_modules/
+.env
+models/*.js
+!models/index.js
+*.log
+.claude/settings.local.json
