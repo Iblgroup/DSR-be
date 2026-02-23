@@ -18,6 +18,7 @@ const ALLOWED_FILTERS = {
   channel:            't01.channel',
   data_flag:          't01.data_flag',
   prod_nm:            't01.prod_nm',
+  region_desc:        't02.region_desc',
 };
 
 router.get("/", async (req, res) => {

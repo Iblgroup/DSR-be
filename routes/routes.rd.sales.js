@@ -25,6 +25,7 @@ const ALLOWED_FILTERS = {
   channel:            't01.channel',
   data_flag:          't01.data_flag',
   prod_nm:            't01.prod_nm',
+  region_desc:        't02.region_desc',
 };
 
 router.get("/detail", async (req, res) => {
@@ -74,9 +75,11 @@ sales AS (
     SELECT sap_code,
     SUM(CASE WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE) AND billing_date <= CURRENT_DATE THEN gross_amount ELSE 0 END) AS RD_CMS_TP,
     SUM(CASE WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN gross_amount ELSE 0 END) AS RD_LMS_TP
-    FROM vw_invoice_productmap
+    FROM vw_invoice_productmap t01
+    INNER JOIN public.product_region t02 ON t01.branch_id = t02.org_id::text
     WHERE billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
     AND billing_date <= CURRENT_DATE
+    ${filterSQL}
     GROUP BY sap_code
 )
 SELECT

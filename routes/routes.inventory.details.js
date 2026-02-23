@@ -4,15 +4,18 @@ import db from "../models/index.js";
 const router = express.Router();
 
 const ALLOWED_FILTERS = {
-  AD:                 '"AD"',
-  BU_Desc:            '"BU_Desc"',
-  Team_Desc:          '"Team_Desc"',
-  grp_brand:          'grp_brand',
-  prod_nm:            'prod_nm',
-  data_flag:          'data_flag',
-  channel:            'channel',
-  branch_description: 'branch_description',
+  AD:                 't01."AD"',
+  Team_Desc:          't01."Team_Desc"',
+  BU_Desc:            't01."BU_Desc"',
+  Ctg:                't01."Ctg"',
+  grp_brand:          't01.grp_brand',
+  branch_description: 't01.branch_description',
+  channel:            't01.channel',
+  data_flag:          't01.data_flag',
+  prod_nm:            't01.prod_nm',
+  region_desc:        't02.region_desc',
 };
+
 
 function buildFilterSQL(query) {
   const clauses = [];

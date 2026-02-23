@@ -19,6 +19,7 @@ const ALLOWED_FILTERS = {
   channel:            't01.channel',
   data_flag:          't01.data_flag',
   prod_nm:            't01.prod_nm',
+  region_desc:        't02.region_desc',
 };
 
 router.get("/", async (req, res) => {
@@ -121,6 +122,7 @@ router.get("/", async (req, res) => {
           ${groupByCol} AS group_name,
           ${metricCols}
       FROM vw_invoice_productmap t01
+      INNER JOIN public.product_region t02 ON t01.branch_id = t02.org_id::text
       WHERE
           t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
           AND t01.billing_date <= CURRENT_DATE
@@ -252,6 +254,7 @@ router.get("/table", async (req, res) => {
               , 0) * 100
           , 1)                                                            AS "RD_EFP_Val%"
       FROM vw_invoice_productmap t01
+      INNER JOIN public.product_region t02 ON t01.branch_id = t02.org_id::text
       WHERE
           billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
           AND billing_date <= CURRENT_DATE
