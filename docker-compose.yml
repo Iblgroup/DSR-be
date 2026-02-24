@@ -1,4 +1,4 @@
-name: distribution-metrics-be
+name: dsr-be
 
 services:
   app:
