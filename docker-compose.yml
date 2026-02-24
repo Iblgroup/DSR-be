@@ -2,8 +2,8 @@ name: distribution-metrics-be
 
 services:
   app:
-    image: iblcloud/searl-distribution-metric-be:1.0.0
-    container_name: searl-distribution-metric-be
+    image: iblcloud/searl-dsr-be:1.0.0
+    container_name: searl-dsr-be
     restart: unless-stopped
     build:
       context: .
