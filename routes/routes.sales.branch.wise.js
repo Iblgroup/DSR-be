@@ -44,55 +44,56 @@ router.get("/", async (req, res) => {
     const isEfp = displayMode === "EFP";
     const metricCols = isEfp
       ? `
-          SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE) AND t01.billing_date <= CURRENT_DATE THEN t01.sold_qty ELSE 0 END) AS RD_CMU,
-          SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE) AND t01.billing_date <= CURRENT_DATE THEN t01."EFP_Cur" * t01.sold_qty ELSE 0 END) AS CMV,
+          SUM(CASE
+        WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+        AND  billing_date <= CURRENT_DATE
+        THEN gross_amount ELSE 0
+    END)AS CMV,
+    SUM(CASE
+        WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+        AND  billing_date <  DATE_TRUNC('month', CURRENT_DATE)
+        THEN gross_amount ELSE 0
+    END)AS PMV,
+    ROUND(
+        (
+            SUM(CASE
+                WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+                AND  billing_date <= CURRENT_DATE
+                THEN gross_amount ELSE 0
+            END)::numeric
+            -
+            SUM(CASE
+                WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                AND  billing_date <  DATE_TRUNC('month', CURRENT_DATE)
+                THEN gross_amount ELSE 0
+            END)::numeric
+        )
+        /
+        NULLIF(
+            SUM(CASE
+                WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+                AND  billing_date <  DATE_TRUNC('month', CURRENT_DATE)
+                THEN gross_amount ELSE 0
+            END)::numeric
+        , 0)
+        * 100
+    , 1) AS "S_Grw%"`
+      : `
+      SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE) AND t01.billing_date <= CURRENT_DATE THEN t01.sold_qty ELSE 0 END) AS RD_CMU,
+          SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE) AND t01.billing_date <= CURRENT_DATE THEN efp * t01.sold_qty ELSE 0 END) AS CMV,
           SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND t01.billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN t01.sold_qty ELSE 0 END) AS RD_LMU,
-          SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND t01.billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN t01."EFP" * t01.sold_qty ELSE 0 END) AS PMV,
+          SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND t01.billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN efp * t01.sold_qty ELSE 0 END) AS PMV,
           ROUND(
               (
-                  SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE) AND t01.billing_date <= CURRENT_DATE THEN t01."EFP_Cur" * t01.sold_qty ELSE 0 END)::numeric
+                  SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE) AND t01.billing_date <= CURRENT_DATE THEN efp * t01.sold_qty ELSE 0 END)::numeric
                   -
-                  SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND t01.billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN t01."EFP" * t01.sold_qty ELSE 0 END)::numeric
+                  SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND t01.billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN efp * t01.sold_qty ELSE 0 END)::numeric
               )
               / NULLIF(
-                  SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND t01.billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN t01."EFP" * t01.sold_qty ELSE 0 END)::numeric
+                  SUM(CASE WHEN t01.billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND t01.billing_date <= (CURRENT_DATE - INTERVAL '1 month') THEN efp * t01.sold_qty ELSE 0 END)::numeric
               , 0) * 100
-          , 1) AS "S_Grw%"`
-      : `
-          SUM(CASE
-              WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
-              AND  billing_date <= CURRENT_DATE
-              THEN gross_amount ELSE 0
-          END) AS CMV,
-          SUM(CASE
-              WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-              AND  billing_date <  DATE_TRUNC('month', CURRENT_DATE)
-              THEN gross_amount ELSE 0
-          END) AS PMV,
-          ROUND(
-              (
-                  SUM(CASE
-                      WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
-                      AND  billing_date <= CURRENT_DATE
-                      THEN gross_amount ELSE 0
-                  END)::numeric
-                  -
-                  SUM(CASE
-                      WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-                      AND  billing_date <  DATE_TRUNC('month', CURRENT_DATE)
-                      THEN gross_amount ELSE 0
-                  END)::numeric
-              )
-              /
-              NULLIF(
-                  SUM(CASE
-                      WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-                      AND  billing_date <  DATE_TRUNC('month', CURRENT_DATE)
-                      THEN gross_amount ELSE 0
-                  END)::numeric
-              , 0)
-              * 100
-          , 1) AS "S_Grw%"`;
+          , 1) AS "S_Grw%"
+      `;
 
     const sql = `
       SELECT
@@ -144,11 +145,17 @@ router.get("/table", async (req, res) => {
     const filterSQL = filterClauses.length > 0 ? filterClauses.join("\n") : "";
     const sql = `
 SELECT
-        "AD",
-        "BU_Desc",
-        "Team_Desc",
-        region_desc,
-        sap_item_dessc,
+	ad ,
+  team_desc ,
+  bu_desc ,
+  ctg ,
+    grp_brand,
+    item_description ,
+    branch_description,
+    channel,
+    data_flag,
+    grp_brand,
+    region_desc,
     SUM(CASE
         WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
         AND  billing_date <= CURRENT_DATE
@@ -162,7 +169,7 @@ SELECT
     SUM(CASE
         WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
         AND  billing_date <= CURRENT_DATE
-        THEN "EFP_Cur" * sold_qty ELSE 0
+        THEN efp * sold_qty ELSE 0
     END) AS RD_CMS_EFP,
     SUM(CASE
         WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
@@ -177,7 +184,7 @@ SELECT
     SUM(CASE
         WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
         AND  billing_date <= (CURRENT_DATE - INTERVAL '1 month')
-        THEN "EFP_Cur" * sold_qty ELSE 0
+        THEN efp * sold_qty ELSE 0
     END)  AS RD_LMS_EFP,
     ROUND(
         (
@@ -215,16 +222,16 @@ SELECT
         (
             SUM(CASE WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE)
                 AND billing_date <= CURRENT_DATE
-                THEN "EFP_Cur" * sold_qty ELSE 0 END)::numeric
+                THEN efp * sold_qty ELSE 0 END)::numeric
             -
             SUM(CASE WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                 AND billing_date <= (CURRENT_DATE - INTERVAL '1 month')
-                THEN "EFP_Cur" * sold_qty ELSE 0 END)::numeric
+                THEN efp * sold_qty ELSE 0 END)::numeric
         )
         / NULLIF(
             SUM(CASE WHEN billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
                 AND billing_date <= (CURRENT_DATE - INTERVAL '1 month')
-                THEN "EFP_Cur" * sold_qty ELSE 0 END)::numeric
+                THEN efp * sold_qty ELSE 0 END)::numeric
         , 0) * 100
     , 1)                                                            AS "RD_EFP_Val%"
 FROM vw_invoice_productmap t01
@@ -232,16 +239,20 @@ inner join public.product_region t02
 on t01.branch_id = t02.org_id::text
 WHERE
     billing_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-    AND billing_date <= CURRENT_DATE
-    ${filterSQL}
-GROUP BY
-        "AD",
-        "BU_Desc",
-        "Team_Desc",
-        region_desc,
-        sap_item_dessc
-ORDER BY
-    "AD", "BU_Desc", "Team_Desc";
+    AND billing_date <= CURRENT_DATE and ad IS NOT NULL
+      ${filterSQL}
+GROUP by
+	ad ,
+  team_desc ,
+  bu_desc ,
+  ctg ,
+    grp_brand,
+    item_description,
+    branch_description,
+    channel,
+    data_flag,
+    grp_brand,
+    region_desc;
     `;
     const results = await db.sequelize.query(sql, {
       replacements,
