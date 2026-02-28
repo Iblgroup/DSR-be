@@ -14,16 +14,16 @@ import filters from './routes.filters.js';
 const router = express.Router();
 
 //Mount routers
-router.use('/product-data', productRouter);
-router.use('/daily-sales-avg', perDaySalesAvg);
-router.use('/mtd-sales-detail', mtdSalesDetail);
-router.use('/sales-summary', salesSummary);
 router.use('/per-day-sales', perDaySales);
+router.use('/sales-summary', salesSummary);
 router.use('/sales-growth-national', salesGrowthNational);
-router.use('/product-inventory', productInventory);
 router.use('/sales-branch-wise', salesBranchWise);
 router.use('/sales-achievements', salesAcievemnt);
 router.use('/rd-sales', rdSales);
+router.use('/daily-sales-avg', perDaySalesAvg);
+router.use('/product-inventory', productInventory);
+router.use('/mtd-sales-detail', mtdSalesDetail);
 router.use('/filters', filters);
+router.use('/product-data', productRouter);
 
 export default router;

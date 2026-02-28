@@ -34,30 +34,28 @@ router.get("/available", async (req, res) => {
     const { filterSQL, replacements } = buildFilterSQL(req.query);
 
     const sql = `
-      select distributor_item_description,sum(stock_qty_mtd)stock_qty_mtd
-      from (
-      WITH products AS (
-          SELECT DISTINCT sap_mapping_code
-          FROM vw_invoice_productmap
-          WHERE billing_date >= DATE_TRUNC('month', CURRENT_DATE)
-          AND billing_date <= CURRENT_DATE
-          ${filterSQL}
-      ),
-      stock AS (
-          SELECT ibl_item_code, SUM(stock_qty) AS stock_qty_MTD,distributor_item_description
-          FROM vw_primary_secondary_stock
-          WHERE dated >= DATE_TRUNC('month', CURRENT_DATE)
-          AND dated <= CURRENT_DATE
-          GROUP BY ibl_item_code,distributor_item_description
-      )
-      SELECT
-          trim(s.distributor_item_description)distributor_item_description
-        ,COALESCE(s.stock_qty_MTD, 0) AS stock_qty_MTD
-      FROM products p
-      LEFT JOIN stock s ON s.ibl_item_code::text = p.sap_mapping_code::text
-      )A
-      group by distributor_item_description
-      ;
+    WITH products AS (
+        SELECT DISTINCT item_code, item_description
+        FROM vw_invoice_productmap
+        where
+        billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+      AND billing_date <= CURRENT_DATE
+    ),
+    stock AS (
+        SELECT ibl_item_code,
+        SUM(stock_qty) AS stock_qty_MTD
+        FROM vw_primary_secondary_stock
+        where dated >= DATE_TRUNC('month', CURRENT_DATE)
+        AND dated <= CURRENT_DATE
+        ${filterSQL}
+        GROUP BY ibl_item_code
+    )
+    SELECT
+        p.item_description,
+        COALESCE(s.stock_qty_MTD, 0) AS stock_qty_MTD
+    FROM products p
+    LEFT JOIN stock s ON s.ibl_item_code::text = p.item_code::text
+    ORDER BY p.item_description;
     `;
 
     const results = await db.sequelize.query(sql, {
@@ -80,30 +78,40 @@ router.get("/required", async (req, res) => {
   try {
     const { filterSQL, replacements } = buildFilterSQL(req.query);
     const sql = `
-      with stock as (
-      SELECT ibl_item_code, SUM(stock_qty) AS TotalInvQty
+    WITH stock AS (
+        SELECT ibl_item_code, SUM(stock_qty) AS TotalInvQty
         FROM vw_primary_secondary_stock
+        where
+        dated >= DATE_TRUNC('month', CURRENT_DATE)
+        AND dated <= CURRENT_DATE
         GROUP BY ibl_item_code
-      )
-      ,sales as (select tsd.item_code,sum(sold_qty)sold_qty
-      from mv_tscl_sales_data tsd
-      WHERE billing_date >= DATE_TRUNC('month', CURRENT_DATE)
-                AND billing_date <= CURRENT_DATE
-                ${filterSQL}
-                group by item_code)
-      ,target as (select material_code ,sum(target_qty)target_qty
-      FROM vw_tscl_sap_targets
-      WHERE target_date = DATE_TRUNC('month', CURRENT_DATE)::date group by material_code )          
-      select
-      --sal.item_code,sal.sold_qty
-      sid.matnr_desc distributor_item_description
-      ,coalesce(sum(stk.totalinvqty),0)-coalesce(sum(trg.target_qty),0)-coalesce(sum(sal.sold_qty),0)reqinv
-      from sales sal
-      inner join mv_dist_metric_prod_mapping mp on (mp.sap_mapping_code::text=sal.item_code::text)
-      left outer join datasets.sap_items_detail sid on (sid.matnr=sal.item_code)
-      left outer join stock stk on (stk.ibl_item_code=sal.item_code)
-      left outer join target trg on (trg.material_code::text=sal.item_code::text)
-      group by sid.matnr_desc;
+    ),
+    sales AS (
+        SELECT t02.item_code ,t02.item_description ,
+        SUM(sold_qty) AS RD_CMU
+        FROM vw_invoice_productmap t02
+        WHERE
+        billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+        AND billing_date <= CURRENT_DATE   
+    ${filterSQL}
+        GROUP BY item_code ,t02.item_description
+    ),
+    targets AS (
+        SELECT material_code, SUM(target_qty) AS TrgUnit
+        FROM vw_tscl_sap_targets
+        WHERE target_date = DATE_TRUNC('month', CURRENT_DATE)::date
+        GROUP BY material_code
+    )
+    SELECT
+        s.item_description,
+    --    COALESCE(st.TotalInvQty, 0) AS TotalInvQty
+    --    COALESCE(t.TrgUnit, 0) AS TrgUnit,
+    --    COALESCE(s.RD_CMU, 0) AS RD_CMU,
+    --    COALESCE(t.TrgUnit, 0) - COALESCE(s.RD_CMU, 0) AS UnitRem,
+        COALESCE(st.TotalInvQty, 0) - (COALESCE(t.TrgUnit, 0) - COALESCE(s.RD_CMU, 0)) AS ReqInv
+    FROM sales s
+    LEFT JOIN stock st ON st.ibl_item_code::text = s.item_code::text
+    LEFT JOIN targets t ON t.material_code::text = s.item_code::text;
     `;
     const results = await db.sequelize.query(sql, {
       replacements,
@@ -126,50 +134,51 @@ router.get("/vs-target", async (req, res) => {
     const { filterSQL, replacements } = buildFilterSQL(req.query);
 
     const sql = `
-      WITH stock AS (
-    SELECT ibl_item_code,
-    SUM(stock_qty)   AS TotalInvQty,
-    SUM(stock_value) AS TotalInvVal
-    FROM vw_primary_secondary_stock
-    WHERE dated >= DATE_TRUNC('month', CURRENT_DATE)
-    AND dated <= CURRENT_DATE
-    GROUP BY ibl_item_code
-),
-targets AS (
-    SELECT material_code,
-    SUM(target_qty)   AS TrgUnit,
-    SUM(target_value) AS TrgVal
-    FROM vw_tscl_sap_targets
-    WHERE target_date = DATE_TRUNC('month', CURRENT_DATE)::date
-    GROUP BY material_code
-),
-sales AS (
-    SELECT sap_code, "AD", "BU_Desc", "Team_Desc", sap_item_dessc,
-    SUM(gross_amount) AS RD_CMS_TP,
-    SUM(sold_qty)     AS RD_CMU
-    FROM vw_invoice_productmap
-    WHERE billing_date >= DATE_TRUNC('month', CURRENT_DATE)
-    AND billing_date <= CURRENT_DATE
-    GROUP BY sap_code, "AD", "BU_Desc", "Team_Desc", sap_item_dessc
-)
-SELECT
-    s."AD",
-    s."BU_Desc",
-    s."Team_Desc",
-    s.sap_item_dessc,
-    COALESCE(st.TotalInvQty, 0)                                                                         AS TotalInvQty,
-    COALESCE(st.TotalInvVal, 0)                                                                         AS TotalInvVal,
-    COALESCE(s.RD_CMS_TP, 0)                                                                            AS RD_CMS_TP,
-    COALESCE(s.RD_CMU, 0)                                                                               AS RD_CMU,
-    COALESCE(t.TrgUnit, 0)                                                                              AS TrgUnit,
-    COALESCE(t.TrgVal, 0)                                                                               AS TrgVal,
-    ROUND(COALESCE(st.TotalInvQty, 0)::numeric / NULLIF(t.TrgUnit, 0)::numeric * EXTRACT(DAY FROM DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'), 1) AS Cover_Days,
-    ROUND(COALESCE(st.TotalInvQty, 0)::numeric / NULLIF(t.TrgUnit, 0)::numeric, 2)                     AS Cover_Months
-FROM sales s
-LEFT JOIN stock st   ON st.ibl_item_code::text  = s.sap_code::text
-LEFT JOIN targets t  ON t.material_code::text   = s.sap_code::text
---where  s.sap_item_dessc is null
-ORDER BY s."AD", s."BU_Desc", s."Team_Desc", s.sap_item_dessc;
+    WITH stock AS (
+        SELECT ibl_item_code,
+        SUM(stock_qty)   AS TotalInvQty,
+        SUM(stock_value) AS TotalInvVal
+        FROM vw_primary_secondary_stock
+        WHERE
+        dated >= DATE_TRUNC('month', CURRENT_DATE)
+        AND dated <= CURRENT_DATE
+        GROUP BY ibl_item_code
+    ),
+    targets AS (
+        SELECT material_code,
+        SUM(target_qty)   AS TrgUnit,
+        SUM(target_value) AS TrgVal
+        FROM vw_tscl_sap_targets
+        WHERE target_date = DATE_TRUNC('month', CURRENT_DATE)::date
+        GROUP BY material_code
+    ),
+    sales AS (
+        SELECT sap_code, ad , bu_desc , team_desc , item_code ,item_description ,
+        SUM(gross_amount) AS RD_CMS_TP,
+        SUM(sold_qty)     AS RD_CMU
+        FROM vw_invoice_productmap
+        WHERE   
+        billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+        AND billing_date <= CURRENT_DATE and ad is not null and ad <> ''
+        GROUP BY sap_code, sap_code, ad , bu_desc , team_desc , item_code ,item_description
+    )
+    SELECT
+        s.ad ,
+        s.bu_desc ,
+        s.team_desc ,
+        s.item_description ,
+        COALESCE(st.TotalInvQty, 0)                                                                         AS TotalInvQty,
+        COALESCE(st.TotalInvVal, 0)                                                                         AS TotalInvVal,
+        COALESCE(s.RD_CMS_TP, 0)                                                                            AS RD_CMS_TP,
+        COALESCE(s.RD_CMU, 0)                                                                               AS RD_CMU,
+        COALESCE(t.TrgUnit, 0)                                                                              AS TrgUnit,
+        COALESCE(t.TrgVal, 0)                                                                               AS TrgVal,
+        ROUND(COALESCE(st.TotalInvQty, 0)::numeric / NULLIF(t.TrgUnit, 0)::numeric * EXTRACT(DAY FROM DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day'), 1) AS Cover_Days,
+        ROUND(COALESCE(st.TotalInvQty, 0)::numeric / NULLIF(t.TrgUnit, 0)::numeric, 2)                     AS Cover_Months
+    FROM sales s
+    LEFT JOIN stock st   ON st.ibl_item_code::text  = s.item_code::text
+    LEFT JOIN targets t  ON t.material_code::text   = s.item_code::text
+    ORDER BY s.ad, s.bu_desc ,s.team_desc , s.item_description ;
     `;
     const results = await db.sequelize.query(sql, {
       replacements,
@@ -191,33 +200,35 @@ router.get("/branch-wise", async (req, res) => {
   try {
     const { filterSQL, replacements } = buildFilterSQL(req.query);
     const sql = `
-     WITH stock AS (
-    SELECT ibl_item_code, distributor_desc,
-    SUM(stock_qty)   AS TotalInvQty,
-    SUM(stock_value) AS TotalInvVal
-    FROM vw_primary_secondary_stock
-    WHERE dated >= DATE_TRUNC('month', CURRENT_DATE)
-    AND dated <= CURRENT_DATE
-    GROUP BY ibl_item_code, distributor_desc
-),
-sales AS (
-    SELECT sap_code, "AD", "BU_Desc", "Team_Desc", sap_item_dessc
-    FROM vw_invoice_productmap
-    WHERE billing_date >= DATE_TRUNC('month', CURRENT_DATE)
-    AND billing_date <= CURRENT_DATE
-    GROUP BY sap_code, "AD", "BU_Desc", "Team_Desc", sap_item_dessc
-)
-SELECT
-    s."AD",
-    s."BU_Desc",
-    s."Team_Desc",
-    s.sap_item_dessc,
-    st.distributor_desc,
-    COALESCE(st.TotalInvQty, 0) AS TotalInvQty,
-    COALESCE(st.TotalInvVal, 0) AS TotalInvVal
-FROM sales s
-LEFT JOIN stock st ON st.ibl_item_code::text = s.sap_code::text
-ORDER BY s."AD", s."BU_Desc", s."Team_Desc", s.sap_item_dessc, st.distributor_desc;
+      WITH stock AS (
+          SELECT ibl_item_code, distributor_desc,
+          SUM(stock_qty)   AS TotalInvQty,
+          SUM(stock_value) AS TotalInvVal
+          FROM vw_primary_secondary_stock
+          WHERE
+          dated >= DATE_TRUNC('month', CURRENT_DATE)
+          AND dated <= CURRENT_DATE
+          GROUP BY ibl_item_code, distributor_desc
+      ),
+      sales AS (
+          SELECT  ad , bu_desc , team_desc , item_code ,item_description
+          FROM vw_invoice_productmap
+          WHERE 	
+          billing_date >= DATE_TRUNC('month', CURRENT_DATE)
+          AND billing_date <= CURRENT_DATE and ad is not null and ad <> ''    
+          GROUP BY ad , bu_desc , team_desc , item_code ,item_description
+      )
+      SELECT
+          s.ad,
+          s.bu_desc,
+          s.team_desc,
+          s.item_description,
+          st.distributor_desc,
+          COALESCE(st.TotalInvQty, 0) AS TotalInvQty,
+          COALESCE(st.TotalInvVal, 0) AS TotalInvVal
+      FROM sales s
+      LEFT JOIN stock st ON st.ibl_item_code::text = s.item_code::text
+      ORDER BY s.ad, s.bu_desc, s.team_desc, s.item_description, st.distributor_desc;
     `;
     const results = await db.sequelize.query(sql, {
       replacements,
